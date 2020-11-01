@@ -5,8 +5,10 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"math/big"
 	"regexp"
 
 	"github.com/beevik/etree"
@@ -28,12 +30,14 @@ type ValidationContext struct {
 	CertificateStore X509CertificateStore
 	IdAttribute      string
 	Clock            *Clock
+	KeyInfoType KeyInfoType
 }
 
 func NewDefaultValidationContext(certificateStore X509CertificateStore) *ValidationContext {
 	return &ValidationContext{
 		CertificateStore: certificateStore,
 		IdAttribute:      DefaultIdAttr,
+		KeyInfoType: DefaultKeyInfoType,
 	}
 }
 
@@ -403,7 +407,7 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*types.Signatu
 		for _, ref := range _sig.SignedInfo.References {
 			if ref.URI == "" || ref.URI[1:] == idAttr {
 				sig = _sig
-				return etreeutils.ErrTraversalHalted
+				//return etreeutils.ErrTraversalHalted
 			}
 		}
 
@@ -419,6 +423,90 @@ func (ctx *ValidationContext) findSignature(root *etree.Element) (*types.Signatu
 	}
 
 	return sig, nil
+}
+
+func (ctx *ValidationContext) createRSAPublicKey(rsakeyvalue *types.RSAKeyValue) (*rsa.PublicKey, error) {
+	modulus := rsakeyvalue.Modulus
+	exp := rsakeyvalue.Exponent
+
+	decN, err := base64.StdEncoding.DecodeString(modulus)
+	if err != nil {
+		fmt.Errorf("%s",err.Error())
+		return nil, err
+	}
+	n := big.NewInt(0)
+	n.SetBytes(decN)
+
+	decE, err := base64.StdEncoding.DecodeString(exp)
+	if err != nil {
+		fmt.Errorf("%s",err.Error())
+		return nil, err
+	}
+
+	var eBytes []byte
+	if len(decE) < 8 {
+		eBytes = make([]byte, 8-len(decE), 8)
+		eBytes = append(eBytes, decE...)
+	} else {
+		eBytes = decE
+	}
+	eReader := bytes.NewReader(eBytes)
+	var e uint64
+	err = binary.Read(eReader, binary.BigEndian, &e)
+	if err != nil {
+		fmt.Errorf("%s",err.Error())
+		return nil, err
+	}
+	pKey := &rsa.PublicKey{N: n, E: int(e)}
+
+	return pKey, nil
+}
+
+func (ctx *ValidationContext) verifyRSAKey(sig *types.Signature) (*x509.Certificate, error) {
+	now := ctx.Clock.Now()
+
+	roots, err := ctx.CertificateStore.Certificates()
+	if err != nil {
+		fmt.Errorf("%s",err.Error())
+		return nil, err
+	}
+
+	if sig.KeyInfo != nil {
+
+		if len(sig.KeyInfo.RSAKeyValue.Modulus) == 0 || len(sig.KeyInfo.RSAKeyValue.Exponent) == 0 {
+			return nil, errors.New("missing RSA info (modulus/exponent) within KeyInfo>RSAKeyValue")
+		}
+
+		_key, err := ctx.createRSAPublicKey(&sig.KeyInfo.RSAKeyValue)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, cert := range roots {
+			certPubKey, ok := cert.PublicKey.(*rsa.PublicKey)
+
+			if ok {
+				if certPubKey.E == _key.E && certPubKey.N == _key.N {
+
+					if now.Before(cert.NotBefore) || now.After(cert.NotAfter) {
+						fmt.Errorf("matched cert is not valid at this time")
+						return nil, errors.New("matched cert is not valid at this time")
+					}
+
+					fmt.Printf("certificate with subject (%s) matched", cert.Subject.String())
+					return cert, nil
+				}
+			}
+
+		}
+
+		fmt.Errorf("could not find any certificate that match RSAKeyValue")
+		return nil, errors.New("no certificate found that match RSAKeyValue")
+	} else {
+		return nil, errors.New("missing KeyInfo>RSAKeyValue")
+	}
+
+
 }
 
 func (ctx *ValidationContext) verifyCertificate(sig *types.Signature) (*x509.Certificate, error) {
@@ -479,10 +567,20 @@ func (ctx *ValidationContext) Validate(el *etree.Element) (*etree.Element, error
 		return nil, err
 	}
 
-	cert, err := ctx.verifyCertificate(sig)
-	if err != nil {
-		return nil, err
+	var cert *x509.Certificate
+
+	if ctx.KeyInfoType == X509KeyInfo {
+		cert, err = ctx.verifyCertificate(sig)
+		if err != nil {
+			return nil, err
+		}
+	} else if ctx.KeyInfoType == RSAKeyInfo{
+		cert, err = ctx.verifyRSAKey(sig)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return ctx.validateSignature(el, sig, cert)
+
 }

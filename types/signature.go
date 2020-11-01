@@ -60,11 +60,18 @@ type SignatureValue struct {
 type KeyInfo struct {
 	XMLName  xml.Name `xml:"http://www.w3.org/2000/09/xmldsig# KeyInfo"`
 	X509Data X509Data `xml:"X509Data"`
+	RSAKeyValue RSAKeyValue `xml:"KeyValue>RSAKeyValue"`
 }
 
 type X509Data struct {
 	XMLName          xml.Name          `xml:"http://www.w3.org/2000/09/xmldsig# X509Data"`
 	X509Certificates []X509Certificate `xml:"X509Certificate"`
+}
+
+type RSAKeyValue struct {
+	XMLName          xml.Name `xml:"http://www.w3.org/2000/09/xmldsig# RSAKeyValue"`
+	Modulus	string `xml:"Modulus"`
+	Exponent string `xml:"Exponent"`
 }
 
 type X509Certificate struct {

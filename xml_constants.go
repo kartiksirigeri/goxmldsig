@@ -25,10 +25,18 @@ const (
 	InclusiveNamespacesTag    = "InclusiveNamespaces"
 )
 
+type KeyInfoType int
+
+const (
+	RSAKeyInfo KeyInfoType = iota
+	X509KeyInfo
+)
+
 const (
 	AlgorithmAttr  = "Algorithm"
 	URIAttr        = "URI"
 	DefaultIdAttr  = "ID"
+	DefaultKeyInfoType = X509KeyInfo
 	PrefixListAttr = "PrefixList"
 )
 
