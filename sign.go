@@ -1,12 +1,15 @@
 package dsig
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	_ "crypto/sha1"
 	_ "crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/binary"
 	"errors"
 	"fmt"
 
@@ -20,6 +23,7 @@ type SigningContext struct {
 	IdAttribute   string
 	Prefix        string
 	Canonicalizer Canonicalizer
+	KeyInfoType KeyInfoType
 }
 
 func NewDefaultSigningContext(ks X509KeyStore) *SigningContext {
@@ -29,6 +33,7 @@ func NewDefaultSigningContext(ks X509KeyStore) *SigningContext {
 		IdAttribute:   DefaultIdAttr,
 		Prefix:        DefaultPrefix,
 		Canonicalizer: MakeC14N11Canonicalizer(),
+		KeyInfoType: X509KeyInfo,
 	}
 }
 
@@ -194,11 +199,40 @@ func (ctx *SigningContext) ConstructSignature(el *etree.Element, enveloped bool)
 	signatureValue.SetText(base64.StdEncoding.EncodeToString(rawSignature))
 
 	keyInfo := ctx.createNamespacedElement(sig, KeyInfoTag)
-	x509Data := ctx.createNamespacedElement(keyInfo, X509DataTag)
-	for _, cert := range certs {
-		x509Certificate := ctx.createNamespacedElement(x509Data, X509CertificateTag)
-		x509Certificate.SetText(base64.StdEncoding.EncodeToString(cert))
+
+	if ctx.KeyInfoType == X509KeyInfo {
+		x509Data := ctx.createNamespacedElement(keyInfo, X509DataTag)
+		for _, cert := range certs {
+			x509Certificate := ctx.createNamespacedElement(x509Data, X509CertificateTag)
+			x509Certificate.SetText(base64.StdEncoding.EncodeToString(cert))
+		}
+	} else if ctx.KeyInfoType == RSAKeyInfo {
+		keyValue := ctx.createNamespacedElement(keyInfo, KeyValueTag)
+		rsaKeyValue := ctx.createNamespacedElement(keyValue, RSAKeyValueTag)
+		modulusValue := ctx.createNamespacedElement(rsaKeyValue, ModulusTag)
+		exponentValue := ctx.createNamespacedElement(rsaKeyValue, ExponentTag)
+
+		x509KeyStore := ctx.KeyStore.(*MemoryX509KeyStore)
+		certificate, err := x509.ParseCertificate(x509KeyStore.cert)
+
+		if err != nil {
+			fmt.Errorf("error (%s) while getting certificates", err.Error())
+			return nil, err
+		}
+
+		publicKey := certificate.PublicKey.(*rsa.PublicKey)
+		modulusValue.SetText(base64.StdEncoding.EncodeToString(publicKey.N.Bytes()))
+
+		buf := new(bytes.Buffer)
+		if err := binary.Write(buf, binary.BigEndian, uint64(publicKey.E)); err!=nil {
+			fmt.Errorf("error (%s) while creating Exponent", err.Error())
+			return nil, err
+		}
+		exponentValue.SetText(base64.StdEncoding.EncodeToString(buf.Bytes()))
+
 	}
+
+
 
 	return sig, nil
 }

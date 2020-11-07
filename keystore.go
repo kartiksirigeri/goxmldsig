@@ -37,8 +37,12 @@ func (ks *MemoryX509KeyStore) GetKeyPair() (*rsa.PrivateKey, []byte, error) {
 	return ks.privateKey, ks.cert, nil
 }
 
+func (ks *MemoryX509KeyStore) SetKeyPair(savePrivateKey *rsa.PrivateKey, saveCert []byte) {
+	ks.privateKey, ks.cert =  savePrivateKey, saveCert
+}
+
 func RandomKeyStoreForTest() X509KeyStore {
-	key, err := rsa.GenerateKey(rand.Reader, 1024)
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		panic(err)
 	}
@@ -55,10 +59,22 @@ func RandomKeyStoreForTest() X509KeyStore {
 		BasicConstraintsValid: true,
 	}
 
-	cert, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 	if err != nil {
 		panic(err)
 	}
+	cert, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+
+	//pemCrtBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert})
+	//fmt.Printf("%s", string(pemCrtBytes))
+	//
+	//pemKeyBytes := pem.EncodeToMemory(
+	//	&pem.Block{
+	//		Type: "RSA PRIVATE KEY",
+	//		Bytes: x509.MarshalPKCS1PrivateKey(key),
+	//	},
+	//)
+	//fmt.Printf("%s", string(pemKeyBytes))
+
 
 	return &MemoryX509KeyStore{
 		privateKey: key,

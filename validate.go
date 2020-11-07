@@ -486,7 +486,7 @@ func (ctx *ValidationContext) verifyRSAKey(sig *types.Signature) (*x509.Certific
 			certPubKey, ok := cert.PublicKey.(*rsa.PublicKey)
 
 			if ok {
-				if certPubKey.E == _key.E && certPubKey.N == _key.N {
+				if certPubKey.E == _key.E && certPubKey.N.Cmp(_key.N) == 0 {
 
 					if now.Before(cert.NotBefore) || now.After(cert.NotAfter) {
 						fmt.Errorf("matched cert is not valid at this time")
