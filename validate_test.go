@@ -4,6 +4,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
+	"io/ioutil"
 	"testing"
 
 	"github.com/beevik/etree"
@@ -125,6 +126,89 @@ cOe+Ur1VwzS1JEDbSS2TWWhzq8ojLdrotYLGd9JOsoQhElmz+tMfCFQUFLExinPA
 yy7YHlSiVX13QH2XTu/iQQ==
 -----END CERTIFICATE-----
 `
+
+func TestValidationContext_Validate_RSAKeyValue(t *testing.T) {
+
+	signedBytes := []byte(`<bbps:BillFetchRequest xmlns:bbps="http://bbps.org/schema">
+   <Head ver="1.0" ts="2019-02-16T22:02:36+05:30" origInst="BBCU" refId="HENSVVR4QOS7X1UGPY7JGUV444PL9T2C3QM"/>
+   <Analytics>
+      <Tag name="FETCHREQUESTSTART" value="2019-02-16T22:02:00+05:30"/>
+      <Tag name="FETCHREQUESTEND" value="2019-02-16T22:02:35+05:30"/>
+   </Analytics>
+   <Txn ts="2019-02-16T22:02:35+05:30" msgId="8ENSVVR4QOS7X1UGPY7JGUV444PL9T2C3QX">
+      <RiskScores>
+         <Score provider="OU01" type="TXNRISK" value="030"/>
+         <Score provider="BBPS" type="TXNRISK" value="030"/>
+      </RiskScores>
+   </Txn>
+   <Customer mobile="9505XXXX98">
+      <Tag name="EMAIL" value="manoj.chekuri@npci.org.in"/>
+      <Tag name="AADHAAR" value="123456789012"/>
+      <Tag name="PAN" value="BXXCG7754K"/>
+   </Customer>
+   <Agent id="OU01XXXXINT001123456">
+      <Device>
+         <Tag name="MOBILE" value="9830098300"/>
+         <Tag name="GEOCODE" value="12.9667,77.5667"/>
+         <Tag name="POSTAL_CODE" value="400063"/>
+         <Tag name="IP" value="124.170.23.22"/>
+         <Tag name="INITIATING_CHANNEL" value="INT/INTB/MOB/MOBB/KIOSK/ATM/BNKBRNCH/AGT/BSC"/>
+         <Tag name="TERMINAL_ID" value="1234556"/>
+         <Tag name="IMEI" value="123456789012345"/>
+         <Tag name="IFSC" value="ABCD0001234"/>
+         <Tag name="MAC" value="00-0D-60-07-2A-FO"/>
+         <Tag name="OS" value="iOS"/>
+         <Tag name="APP" value="AGENTAPP"/>
+      </Device>
+   </Agent>
+   <BillDetails>
+      <Biller id="VODA00000MUM03"/>
+      <CustomerParams>
+         <Tag name="RefFld1" value=""/>
+         <Tag name="RefFld2" value=""/>
+         <Tag name="RefFld3" value=""/>
+      </CustomerParams>
+   </BillDetails>
+<Signature xmlns="http://www.w3.org/2000/09/xmldsig#"><SignedInfo><CanonicalizationMethod Algorithm="http://www.w3.org/2006/12/xml-c14n11"/><SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/><Reference URI=""><Transforms><Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/><Transform Algorithm="http://www.w3.org/2006/12/xml-c14n11"/></Transforms><DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><DigestValue>Fm6aHU22G4HDUQIKNnfbellSbDuHJq6Kmf2uBdiays8=</DigestValue></Reference></SignedInfo><SignatureValue>rTYSESuJn4Z6XO1Se4qpsGQnGx31vSj5Gk3arMDHqjwfEzXGNpqQG60V/n5P6vBEojZgj+i6DHlrma6lRKuGcuRdXxnxJKEeGb6mJNjoC3lpPDTtwEVY5SRF6qBYs2F7tmE8MPadoM7S1bDmVDkzQS4z7XwYOj5TJrGRFgyy5lc=</SignatureValue><KeyInfo><KeyValue><RSAKeyValue><Modulus>5RhBG7RMfbQ5ekwt+e3COFFNPgIvtOrhxoy0RDT0jXPDxo+z4NatXXpjWg3wOn8TqlydHe15lo7Fzt3q/d3n9bGK/B/8N6BMbcIGpL/rXatLR/RplpgKJZsdDZdUG8iDl3wrryB6kHwA9If4IDwC32VaE7q2nd+1re2ein8cvqs=</Modulus><Exponent>AAAAAAABAAE=</Exponent></RSAKeyValue></KeyValue></KeyInfo></Signature></bbps:BillFetchRequest>`)
+
+	certBytes, err := ioutil.ReadFile("test_certificate.cer")
+	if err != nil {
+		panic(err)
+	}
+
+	certificate, err := x509.ParseCertificate(certBytes)
+	if err != nil {
+		panic(err)
+	}
+
+
+	doc := etree.NewDocument()
+	err = doc.ReadFromBytes(signedBytes)
+	if err != nil {
+		panic(err)
+	}
+
+	var certs []*x509.Certificate
+	certs = append(certs,certificate)
+
+	validationCtx := NewDefaultValidationContext(&MemoryX509CertificateStore{Roots: certs})
+	validationCtx.KeyInfoType = RSAKeyInfo
+	validated, err := validationCtx.Validate(doc.Root())
+	require.NoError(t, err)
+
+	signatureElement := validated.FindElement("//Signature")
+	require.Empty(t, signatureElement.ChildElements(), "'Signature' element was not expected")
+
+	//doc = etree.NewDocument()
+	//doc.SetRoot(validated)
+	//signedXml, err := doc.WriteToString()
+	//if err != nil {
+	//	panic(err)
+	//}
+	//
+	//println(signedXml)
+
+}
 
 func TestDigest(t *testing.T) {
 	canonicalizer := MakeC14N10ExclusiveCanonicalizerWithPrefixList("")
